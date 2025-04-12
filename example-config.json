@@ -1,0 +1,6 @@
+{
+    "guildId": "Id do servidor",
+    "channelId": "Id do chat(Opcional)",
+    "token": "Seu token do discord",
+    "minimunKakeraValue": 200
+}
