@@ -56,22 +56,6 @@ function registerClaim(userId) {
 }
 
 
-/*************  ✨ Windsurf Command ⭐  *************/
-/**
- * Executa uma a o com retries em caso de falha.
- *
- * Se a a o falhar,   executada novamente ap s um tempo de espera (RETRY_DELAY).
- * Se a a o falhar novamente,   executada novamente at   que o limite de tentativas seja atingido (MAX_RETRIES).
- * Se o limite de tentativas for atingido,   lan ada um erro.
- *
- * Caso a a o seja rate limitada,   aguardado o tempo de espera (RATE_LIMIT_DELAY) antes de tentar novamente.
- *
- * @param {Function} action Fun o a ser executada.
- * @param {String} actionName Nome da a o para logar erros.
- * @param {Number} [maxRetries=MAX_RETRIES] N mero m ximo de tentativas.
- * @returns {Boolean} true se a a o for executada com sucesso, false caso contr rio.
- */
-/*******  b8fe9aa0-fd39-4a8e-981e-9e0833c6fe1a  *******/
 async function executeWithRetry(action, actionName, maxRetries = MAX_RETRIES) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
@@ -168,9 +152,9 @@ client.on("messageCreate", async (message) => {
     }
 
     if (!sniper_on) return;
-    if (message.guild.id !== config.guildId) return;
     if (message.author.id !== "432610292342587392") return;
     if (!message.embeds?.length) return;
+    if (message.guild.id !== config.guildId) return;
 
     const embed = message.embeds[0];
     const content = embed.description || "";
