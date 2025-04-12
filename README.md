@@ -12,6 +12,7 @@ Um script feito com `discord.js-selfbot-v13` que automatiza o claim de personage
 - 💠 Sniper de kakera com valor mínimo configurável.
 - 🕒 Controle de cooldown de claims (reseta a cada 3 horas, começando às 01:31).
 - 🔘 Interação automática com botões de claim.
+- 📤 Webhook ao dar claim em personagens
 - 💬 Comando `!sniper` para ativar/desativar em tempo real.
 
 ---

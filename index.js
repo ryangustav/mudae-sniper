@@ -1,6 +1,7 @@
 const discord = require("discord.js-selfbot-v13");
 const config = require("./config.json");
 const colors = require("colors");
+const axios = require("axios");
 let sniper_on = true;
 
 
@@ -40,6 +41,20 @@ function getNextResetTime() {
         }
     }
     return resetTimes[resetTimes.length - 1];
+}
+
+function webhookSend(character, value) {
+
+    const testWebhook = axios.get(config.webhookUrl);
+    if (!testWebhook) return;
+
+    const data = { content: `❤ ${client.user} capturou - ${character} que vale ${value} kakeras`}
+    
+    axios.post(config.webhookUrl, data, { 
+        headers: { 'Content-Type': 'application/json' } 
+    }).then(res => {
+        console.log(`✅ Webhook enviado para ${config.webhookUrl}`.green);
+    })
 }
 
 function isUserInCooldown(userId) {
@@ -112,6 +127,11 @@ client.on("messageCreate", async (message) => {
         return;
     }
 
+    const embed = message.embeds[0];
+    const content = embed.description || "";
+    const kakeraMatch = content.match(/\*\*(\d+)\*\*<:kakera:\d+>/);
+    const kakeraValue = kakeraMatch ? parseInt(kakeraMatch[1], 10) : null;
+
     for (const row of message.components) {
         for (const component of row.components) {
             if (component.type === 'BUTTON' && component.style !== 'LINK') {
@@ -121,6 +141,7 @@ client.on("messageCreate", async (message) => {
                 );
                 if (success) {
                     console.log(`✅ Instaclaim realizado na mensagem que mencionou o usuário.`.green);
+                    webhookSend(embed.author.name, kakeraValue)
                     registerClaim(userId);
                 } else {
                     console.log(`❌ Falha ao realizar instaclaim após retries.`.red);
@@ -198,7 +219,7 @@ client.on("messageCreate", async (message) => {
 
     if (!hasValidButton) {
         console.log("❌ Botão de claim indisponível ou desativado.".gray);
-        const success = await executeWithRetry(
+       /* const success = await executeWithRetry(
             () => message.react("<:lunna_soda:1340699831617982524>"),
             "react"
         );
@@ -209,6 +230,7 @@ client.on("messageCreate", async (message) => {
             console.log("❌ Falha ao adicionar reação após retries.".red);
         }
         return;
+        */
     }
 
     const success = await executeWithRetry(
@@ -217,6 +239,7 @@ client.on("messageCreate", async (message) => {
     );
     if (success) {
         console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
+        webhookSend(charName, kakeraValue)
         registerClaim(userId);
     } else {
         console.log(`❌ Falha ao realizar claim após retries para: ${charName}`.red);
