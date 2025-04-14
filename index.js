@@ -22,20 +22,6 @@ function randomDelay(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function getNextResetTime() {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const resetTimes = [];
-    for (let hour = 2; hour <= 22; hour += 3) {
-        resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
-    }
-    resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 1, 31));
-    for (const resetTime of resetTimes) {
-        if (resetTime > now) return resetTime;
-    }
-    return resetTimes[resetTimes.length - 1];
-}
-
 function webhookSend(character, value) {
     const data = { content: `❤ ${client.user} capturou - ${character} que vale ${value} kakeras` };
     axios.post(config.webhookUrl, data, { headers: { 'Content-Type': 'application/json' } })
@@ -62,7 +48,10 @@ async function claimButton(message, buttonId, charName, kakeraValue) {
     await sleep(delay);
 
     const success = await executeWithRetry(() => message.clickButton(buttonId), `clickButton (${buttonId})`);
-    if (success) {
+    if (charName === "Kakera") {
+        console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
+        webhookSend(charName, kakeraValue);
+    } else if (success) {
         console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
         webhookSend(charName, kakeraValue);
         registerClaim(client.user.id);
@@ -89,12 +78,12 @@ function getNextResetTime() {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const resetTimes = [];
-    for (let hour = 0; hour < 24; hour++) {
+    for (let hour = 2; hour < 24; hour++) {
         resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
     }
 
 
-    for (let hour = 0; hour < 24; hour += 3) {
+    for (let hour = 2; hour < 24; hour += 3) {
         resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
     }
 
@@ -132,6 +121,36 @@ function registerClaim(userId) {
     claimCooldowns.set(userId, new Date());  // Marca o horário do claim
     ignoreCooldown = false;
 }
+
+export async function handleKakeraDrop(message) {
+    if (message.author.id !== "432610292342587392") return;
+    if (!message.embeds?.length || !message.components?.length) return;
+
+    const embed = message.embeds[0];
+    const rows = message.components;
+
+    const isDrop = embed.description?.toLowerCase().includes("pertence a");
+    if (!isDrop) return;
+
+    const serverId = message.guildId;
+    const serverConfig = serverConfigs.get(serverId);
+    if (!serverConfig) return;
+
+    console.log(`🎯 Detecção de drop de kakera com botões!`.cyan);
+
+    for (const row of rows) {
+        for (const button of row.components) {
+            if (!button.customId) continue;
+
+            try {
+                await claimButton(message, button.customId, "Kakera", 0);
+            } catch (err) {
+                console.error(`❌ Erro ao clicar em botão:`, err);
+            }
+        }
+    }
+}
+
 
 async function rollWaifus() {
     while (true) {
@@ -208,6 +227,7 @@ client.on("messageCreate", async (message) => {
     if (message.channel.id !== serverConfig.rollChannel) return;
     if (message.channel.id === serverConfig.blockChannel) return
     if (!message.embeds?.length) return;
+    handleKakeraDrop(message);
 
     const embed = message.embeds[0];
     const content = embed.description || "";
