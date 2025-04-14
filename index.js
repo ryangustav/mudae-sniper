@@ -2,259 +2,283 @@ const discord = require("discord.js-selfbot-v13");
 const config = require("./config.json");
 const colors = require("colors");
 const axios = require("axios");
+const path = require("path");
+const fs = require("fs");
+
+const client = new discord.Client({ patchVoice: true, checkUpdate: false });
+
 let sniper_on = true;
-
-
+let only_wishlist = false;
+let catch_other_rolls = true;
+let lastKakeraValue = 0;
 const claimCooldowns = new Map();
+let ignoreCooldown = false;
 
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-const MAX_RETRIES = 3; 
-const RETRY_DELAY = 1000; 
-const RATE_LIMIT_DELAY = 5000; 
+function randomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 
-const client = new discord.Client({
-    patchVoice: true,
-    checkUpdate: false
-});
-
-
-/**
- * Retorna a data e hora do pr ximo reset de cooldown.
- *
- * O cooldown   resetado   1h31, 4h31, 7h31, 10h31, 13h31, 16h31, 19h31, 22h31 e 1h31 do dia seguinte.
- *
- * @returns {Date} Data e hora do pr ximo reset de cooldown.
- */
 function getNextResetTime() {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const resetTimes = [];
-
-    for (let hour = 1; hour <= 22; hour += 3) {
+    for (let hour = 2; hour <= 22; hour += 3) {
         resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
     }
     resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 1, 31));
-
     for (const resetTime of resetTimes) {
-        if (resetTime > now) {
-            return resetTime;
-        }
+        if (resetTime > now) return resetTime;
     }
     return resetTimes[resetTimes.length - 1];
 }
 
 function webhookSend(character, value) {
-
-    const testWebhook = axios.get(config.webhookUrl);
-    if (!testWebhook) return;
-
-    const data = { content: `❤ ${client.user} capturou - ${character} que vale ${value} kakeras`}
-    
-    axios.post(config.webhookUrl, data, { 
-        headers: { 'Content-Type': 'application/json' } 
-    }).then(res => {
-        console.log(`✅ Webhook enviado para ${config.webhookUrl}`.green);
-    })
+    const data = { content: `❤ ${client.user} capturou - ${character} que vale ${value} kakeras` };
+    axios.post(config.webhookUrl, data, { headers: { 'Content-Type': 'application/json' } })
+        .then(() => console.log(`✅ Webhook enviado`.green))
+        .catch(() => {});
 }
 
-function isUserInCooldown(userId) {
-    const lastClaim = claimCooldowns.get(userId);
-    if (!lastClaim) return false;
-
-    const nextReset = getNextResetTime();
-    return lastClaim >= nextReset - 3 * 60 * 60 * 1000 && new Date() < nextReset;
-}
-
-
-function registerClaim(userId) {
-    claimCooldowns.set(userId, new Date());
-}
-
-
-async function executeWithRetry(action, actionName, maxRetries = MAX_RETRIES) {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+async function executeWithRetry(action, actionName) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             await action();
             return true;
         } catch (err) {
-            if (err.code === 429) { 
-                console.warn(`⚠️ Rate limit atingido em ${actionName}. Aguardando ${RATE_LIMIT_DELAY}ms...`.yellow);
-                await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY));
-            } else if (err.code === 10008 || err.code === 10003) { 
-                console.error(`❌ Erro em ${actionName}: Mensagem ou canal inválido.`.red);
-                return false;
-            } else {
-                console.error(`❌ Tentativa ${attempt}/${maxRetries} falhou em ${actionName}: ${err.message}`.red);
-                if (attempt < maxRetries) {
-                    console.log(`⏳ Aguardando ${RETRY_DELAY}ms antes da próxima tentativa...`.gray);
-                    await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                }
-            }
-            if (attempt === maxRetries) {
-                console.error(`❌ Falha após ${maxRetries} tentativas em ${actionName}.`.red);
-                return false;
-            }
+            if (err.code === 429) await sleep(5000);
+            else if (attempt < 3) await sleep(1000);
+            else return false;
         }
     }
+}
+
+async function claimButton(message, buttonId, charName, kakeraValue) {
+    const delay = randomDelay(1000, 3000);
+    console.log(`🕒 Aguardando ${delay}ms antes de clicar`.gray);
+    await sleep(delay);
+
+    const success = await executeWithRetry(() => message.clickButton(buttonId), `clickButton (${buttonId})`);
+    if (success) {
+        console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
+        webhookSend(charName, kakeraValue);
+        registerClaim(client.user.id);
+    } else {
+        console.log(`❌ Falha ao clicar no botão`.red);
+    }
+}
+
+
+async function rollNow() {
+    const { guildId, rollChannel, maxRollsPerReset } = config;
+    const channel = client.channels.cache.get(rollChannel);
+    if (!channel) return;
+
+    const maxRolls = maxRollsPerReset || 1;
+    for (let i = 0; i < maxRolls; i++) {
+        await channel.send("$wa");
+        console.log(`🎲 Roll imediato enviado (${i + 1}/${maxRolls}) no servidor ${guildId}`.cyan);
+        await sleep(Math.floor(Math.random() * (3 - 1 + 1)) + 1 * 1000);
+    }
+}
+
+function getNextResetTime() {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const resetTimes = [];
+    for (let hour = 0; hour < 24; hour++) {
+        resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
+    }
+
+
+    for (let hour = 0; hour < 24; hour += 3) {
+        resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
+    }
+
+    resetTimes.sort((a, b) => a - b);
+    
+    if (resetTimes[0] < now) {
+        resetTimes[0] = new Date(resetTimes[0].getFullYear(), resetTimes[0].getMonth(), resetTimes[0].getDate() + 1, 1, 31);
+    }
+
+    for (const resetTime of resetTimes) {
+        if (resetTime > now) return resetTime;
+    }
+
+    return resetTimes[resetTimes.length - 1];
+}
+
+
+function isUserInCooldown(userId) {
+    if (ignoreCooldown) return false;
+    const lastClaim = claimCooldowns.get(userId);
+    if (!lastClaim) return false;
+
+    // Verifica se o usuário está em cooldown de claim (3h)
+    const nextClaimReset = new Date(lastClaim);
+    nextClaimReset.setHours(nextClaimReset.getHours() + 3);  // Adiciona 3 horas ao último claim
+    if (new Date() < nextClaimReset) {
+        console.log("🚫 Em cooldown de claim, aguardando próximo reset de claim.");
+        return true;  // Impede claim se estiver dentro do cooldown de 3h
+    }
+
     return false;
 }
 
-client.on("ready", () => {
-    console.log(`[+] Logado como ${client.user.username}`.green);
-    if (sniper_on) {
-        console.log(`[+] Sniper de kakera e waifus ativado`.yellow);
-    } else {
-        console.log(`[+] Sniper de kakera e waifus desativado`.red);
-    }
-    console.log(`[+] Servidor: ${client.guilds.cache.get(config.guildId).name}`.blue);
-});
+function registerClaim(userId) {
+    claimCooldowns.set(userId, new Date());  // Marca o horário do claim
+    ignoreCooldown = false;
+}
 
-client.on("messageCreate", async (message) => {
-    if (!sniper_on) return;
-    if (message.author.id !== "432610292342587392") return;
-    if (message.guild.id !== config.guildId) return;
-    if (!message.mentions.has(client.user)) return;
-    if (message.channel.id === "1102719983324237935") { //Altere para o ID do canal desejado(Canal invalido como um canal que n permite $wa $wg etc)
-        console.log("⚠️ Canal inválido. Ignorando.".gray);
-        return;
-    }
-    if (!message.components || message.components.length === 0) return;
+async function rollWaifus() {
+    while (true) {
+        const nextReset = getNextResetTime();
+        const now = new Date();
 
+        // Verifica se o usuário está em cooldown de claim
+        if (isUserInCooldown(client.user.id)) {
+            console.log("⏳ Em cooldown de claim, aguardando próximo reset.".cyan);
+            const claimCooldownTime = claimCooldowns.get(client.user.id) + (3 * 60 * 60 * 1000) - now;
+            await sleep(claimCooldownTime);  // Aguardar o tempo restante do cooldown de claim
+            continue;
+        }
 
-    const userId = client.user.id;
-    if (isUserInCooldown(userId)) {
-        console.log(`⏳ Usuário em cooldown até ${getNextResetTime().toLocaleTimeString()}. Ignorando.`.gray);
-        return;
-    }
+        const delay = randomDelay(1 * 60 * 1000, 30 * 60 * 1000); // Delay entre os rolls
+        const waitTime = nextReset - now + delay; // Calcula o tempo até o próximo reset
+        const delayMinutes = (delay / 60000).toFixed(2);
 
-    const embed = message.embeds[0];
-    const content = embed.description || "";
-    const kakeraMatch = content.match(/\*\*(\d+)\*\*<:kakera:\d+>/);
-    const kakeraValue = kakeraMatch ? parseInt(kakeraMatch[1], 10) : null;
+        console.log(`⏳ Aguardando até ${nextReset.toLocaleTimeString()} + ${delayMinutes} minutos`.cyan);
+        await sleep(waitTime);
 
-    for (const row of message.components) {
-        for (const component of row.components) {
-            if (component.type === 'BUTTON' && component.style !== 'LINK') {
-                const success = await executeWithRetry(
-                    () => message.clickButton(component.customId),
-                    `clickButton (${component.customId})`
+        const { rollChannel, maxRollsPerReset } = config;
+        const channel = client.channels.cache.get(rollChannel);
+        if (!channel) continue;
+
+        const maxRolls = maxRollsPerReset || 1;
+        let rolled = 0;
+        let waifuClaimed = false;
+
+        while (rolled < maxRolls) {
+            const message = await channel.send("$wa");
+            console.log(`🎲 Roll enviado (${rolled + 1}/${maxRolls})`.magenta);
+            rolled++;
+
+            await sleep(randomDelay(1000, 3000));
+
+            const fetched = await channel.messages.fetch({ after: message.id, limit: 5 }).catch(() => null);
+            if (fetched) {
+                const claimed = fetched.find(msg =>
+                    msg.author.id === "432610292342587392" &&
+                    msg.mentions.users.has(client.user.id) &&
+                    /claimed/i.test(msg.content)
                 );
-                if (success) {
-                    console.log(`✅ Instaclaim realizado na mensagem que mencionou o usuário.`.green);
-                    webhookSend(embed.author.name, kakeraValue)
-                    registerClaim(userId);
-                } else {
-                    console.log(`❌ Falha ao realizar instaclaim após retries.`.red);
+                if (claimed) {
+                    console.log("💘 Waifu reclamada com sucesso!".green);
+                    waifuClaimed = true;
+                    registerClaim(client.user.id);
+                    break;
                 }
-                return;
             }
         }
-    }
 
-    console.log("❌ Nenhum botão de claim encontrado na mensagem que mencionou o usuário.".gray);
+        if (!waifuClaimed) {
+            console.log("😔 Nenhuma waifu reclamada. Tentando no próximo reset.".yellow);
+        } else {
+            console.log("✅ Aguardando próximo reset para novos rolls.".cyan);
+        }
+    }
+}
+
+
+client.on("ready", () => {
+    console.log(`[+] Logado como ${client.user.username}`.green);
+    console.log(`[+] Servidor: ${client.guilds.cache.get(config.guildId).name}`.green);
+    console.log(`[+] Canal rolls : ${client.channels.cache.get(config.rollChannel).name}`.green);
+    rollWaifus();
 });
 
 client.on("messageCreate", async (message) => {
-    if (message.content === "!sniper") {
-        try {
-            await message.delete();
-        } catch (err) {
-            console.error(`❌ Erro ao deletar mensagem !sniper: ${err.message}`.red);
-        }
-        if (message.author.id !== client.user.id) return;
-        if (sniper_on) {
-            sniper_on = false;
-            console.log(`[+] Sniper de kakera e waifus desativado`.red);
-        } else {
-            sniper_on = true;
-            console.log(`[+] Sniper de kakera e waifus ativado`.green);
-        }
-        return;
-    }
-
     if (!sniper_on) return;
+    const serverConfig = config[message.guild?.id];
+    if (!serverConfig) return;
     if (message.author.id !== "432610292342587392") return;
+    if (message.channel.id !== serverConfig.rollChannel) return;
+    if (message.channel.id === serverConfig.blockChannel) return
     if (!message.embeds?.length) return;
-    if (message.guild.id !== config.guildId) return;
 
     const embed = message.embeds[0];
     const content = embed.description || "";
     const kakeraMatch = content.match(/\*\*(\d+)\*\*<:kakera:\d+>/);
-    const kakeraValue = kakeraMatch ? parseInt(kakeraMatch[1], 10) : null;
+    const kakeraValue = kakeraMatch ? parseInt(kakeraMatch[1]) : null;
     const isAlreadyClaimed = embed.footer?.text?.toLowerCase().includes("pertence a") ?? false;
-
-    if (message.channel.id === "1102719983324237935") {
-        console.log("⚠️ Canal inválido. Ignorando.".gray);
-        return;
-    }
-
-    const charName = embed.author.name || "??";
-    const anime = content.split("\n")[0]?.trim() || "??";
+    const button = components[0].components[0];
+    const charName = embed.author?.name || "???";
     console.log(`📥 Detectado: ${charName} (${anime})`.yellow);
     console.log(`💠 Valor kakera: ${kakeraValue ?? "?"}`);
 
-    if (kakeraValue !== null && kakeraValue < config.minimunKakeraValue) {
-        console.log(`⚠️ Valor abaixo do mínimo (${config.minimunKakeraValue}). Ignorando.`.gray);
-        return;
-    }
-
-    if (isAlreadyClaimed) {
-        console.log("⛔ Já foi claimada. Ignorando.".gray);
-        return;
-    }
-
-    const userId = client.user.id;
-    if (isUserInCooldown(userId)) {
-        console.log(`⏳ Usuário em cooldown até ${getNextResetTime().toLocaleTimeString()}. Ignorando.`.gray);
-        return;
-    }
+    if (kakeraValue !== null && kakeraValue < serverConfig.minimum_kakera_value) return console.log(`⚠️ Valor abaixo do mínimo (${kakeraValue} < ${config.minimunKakeraValue}). Ignorando.`.gray);;
+    if (isAlreadyClaimed) return;
 
     const components = message.components;
-    const hasValidButton = (
-        Array.isArray(components) &&
-        components.length > 0 &&
-        components[0].components?.length > 0 &&
-        components[0].components[0].customId
-    );
+    if (!components?.length || !components[0].components?.length) return;
 
-    if (!hasValidButton) {
-        console.log("❌ Botão de claim indisponível ou desativado.".gray);
-       /* const success = await executeWithRetry(
-            () => message.react("<:lunna_soda:1340699831617982524>"),
-            "react"
-        );
-        if (success) {
-            console.log("🥤 Reação adicionada com sucesso.".cyan);
-            registerClaim(userId);
-        } else {
-            console.log("❌ Falha ao adicionar reação após retries.".red);
-        }
-        return;
-        */
+
+    if (!message.mentions.has(client.user) && !catch_other_rolls) return;
+    if (isUserInCooldown(client.user.id)) return;
+
+    await claimButton(message, button.customId, charName, kakeraValue);
+});
+
+client.on("messageCreate", async (message) => {
+    if (message.author.id !== client.user.id) return;
+    if (!message.content.startsWith('!')) return;
+
+    const args = message.content.split(/\s+/);
+    const command = args.shift();
+
+    if (command === '!configserver') {
+        const [guildId, rollChannel, minimunKakeraValue, blockChannel, maxRollsPerReset] = args;
+        config[guildId] = {
+            rollChannel,
+            minimum_kakera_value: parseInt(minimunKakeraValue),
+            blockChannel,
+            maxRollsPerReset: parseInt(maxRollsPerReset) || 10
+        };
+        fs.writeFileSync('./config.json', JSON.stringify(config, null, 2), 'utf8');
+        message.reply('Configuração salva!');
     }
 
-    const success = await executeWithRetry(
-        () => message.clickButton(components[0].components[0].customId),
-        `clickButton (${components[0].components[0].customId})`
-    );
-    if (success) {
-        console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
-        webhookSend(charName, kakeraValue)
-        registerClaim(userId);
-    } else {
-        console.log(`❌ Falha ao realizar claim após retries para: ${charName}`.red);
+    if (command === "!togglecooldown") {
+        ignoreCooldown = !ignoreCooldown;
+        console.log(`[+] Ignorando cooldown de claim: ${ignoreCooldown}`.yellow);
+        message.reply(`Ignorando cooldown de claim: ${ignoreCooldown ? "ativado" : "desativado"}`);
+    }
+
+    if (command === "!rollnow") {
+        await rollNow();
+        message.reply("Roll imediato enviado!");
+    }
+
+    if (message.content === "!catch_other_rolls") {
+        catch_other_rolls = !catch_other_rolls;
+        console.log(`[+] Catch em outros rolls ${catch_other_rolls ? "ativado" : "desativado"}`.yellow);
+        return message.delete().catch(() => {});
+    }
+
+    if (message.content === "!sniper") {
+        sniper_on = !sniper_on;
+        console.log(`[+] Sniper ${sniper_on ? "ativado" : "desativado"}`.yellow);
+        return message.delete().catch(() => {});
+    }
+
+    if (message.content === "!onlywishlist") {
+        only_wishlist = !only_wishlist;
+        console.log(`[+] Only wishlist ${only_wishlist ? "ativado" : "desativado"}`.yellow);
+        return message.delete().catch(() => {});
     }
 });
 
-process.on("uncaughtException", (err) => {
-    console.error(`❌ Erro não capturado: ${err.message}`.red);
-    console.error(err.stack);
-});
-
-process.on("unhandledRejection", (err) => {
-    console.error(`❌ Promessa rejeitada não tratada: ${err.message || err}`.red);
-});
-
-client.login(config.token).catch((err) => {
-    console.error(`❌ Erro ao logar: ${err.message}`.red);
-});
+client.login(config.token);
