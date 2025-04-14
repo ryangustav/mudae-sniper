@@ -76,29 +76,28 @@ async function rollNow() {
 
 function getNextResetTime() {
     const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const resetTimes = [];
-    for (let hour = 2; hour < 24; hour++) {
-        resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
-    }
 
+    for (let hour = 0; hour < 24; hour++) {
+        const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 31);
+        if (reset > now) resetTimes.push(reset);
+    }
 
     for (let hour = 2; hour < 24; hour += 3) {
-        resetTimes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour, 31));
+        const reset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, 31);
+        if (reset > now) resetTimes.push(reset);
     }
+
+    if (resetTimes.length === 0) {
+        const nextReset = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 31);
+        return nextReset;
+    }
+
 
     resetTimes.sort((a, b) => a - b);
-    
-    if (resetTimes[0] < now) {
-        resetTimes[0] = new Date(resetTimes[0].getFullYear(), resetTimes[0].getMonth(), resetTimes[0].getDate() + 1, 1, 31);
-    }
-
-    for (const resetTime of resetTimes) {
-        if (resetTime > now) return resetTime;
-    }
-
-    return resetTimes[resetTimes.length - 1];
+    return resetTimes[0];
 }
+
 
 
 function isUserInCooldown(userId) {
@@ -122,7 +121,7 @@ function registerClaim(userId) {
     ignoreCooldown = false;
 }
 
-export async function handleKakeraDrop(message) {
+async function handleKakeraDrop(message) {
     if (message.author.id !== "432610292342587392") return;
     if (!message.embeds?.length || !message.components?.length) return;
 
