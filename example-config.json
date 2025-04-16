@@ -3,5 +3,8 @@
     "channelId": "Id do chat(Opcional)",
     "token": "Seu token do discord",
     "minimunKakeraValue": 200,
-    "webhookUrl": "Webhook url"
+    "webhookUrl": "Webhook url",
+    "rollChannel": "roll channel",
+    "blockChannel": "block channel",
+    "maxRollsPerReset": 8
 }

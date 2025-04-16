@@ -13,6 +13,41 @@ let catch_other_rolls = true;
 let lastKakeraValue = 0;
 const claimCooldowns = new Map();
 let ignoreCooldown = false;
+let instaClaimTop30 = true;
+
+
+const top30Waifus = {
+    "Zero Two": 1,
+    "Rem": 2,
+    "Hatsune Miku": 3,
+    "Megumin": 4,
+    "Rias Gremory": 5,
+    "Mai Sakurajima": 6,
+    "Master Gojo": 7,
+    "Power": 8,
+    "Nami": 9,
+    "Saber": 10,
+    "Asuna": 11,
+    "Mikasa Ackerman": 12,
+    "Albedo": 13,
+    "Nezuko Kamado": 14,
+    "Makima": 15,
+    "2B": 16,
+    "Miku Nakano": 17,
+    "Nico Robin": 18,
+    "Kirby": 19,
+    "Hange Zoë": 20,
+    "Violet Evergarden": 21,
+    "Emilia": 22,
+    "Aqua": 23,
+    "Shinobu Kochou": 24,
+    "Akame": 25,
+    "Monkey D. Luffy": 26,
+    "Marin Kitagawa": 27,
+    "Yumeko Jabami": 28,
+    "Nino Nakano": 29,
+    "Ram": 30
+};
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -43,15 +78,22 @@ async function executeWithRetry(action, actionName) {
 }
 
 async function claimButton(message, buttonId, charName, kakeraValue) {
-    const delay = randomDelay(1000, 3000);
+    const delay = randomDelay(200, 1500);
     console.log(`🕒 Aguardando ${delay}ms antes de clicar`.gray);
+    
+    if (instaClaimTop30 && top30Waifus[charName]) {
+        console.log(`✅ Claim imediato para: ${charName} do Top 30!`.green);
+        webhookSend(charName, kakeraValue);
+        registerClaim(client.user.id);
+    }
+
     await sleep(delay);
 
     const success = await executeWithRetry(() => message.clickButton(buttonId), `clickButton (${buttonId})`);
     if (charName === "Kakera") {
         console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
         webhookSend(charName, kakeraValue);
-    } else if (success) {
+    }  else if (success) {
         console.log(`✅ Claim feito para: ${charName} (${kakeraValue} kakera)`.green);
         webhookSend(charName, kakeraValue);
         registerClaim(client.user.id);
@@ -109,7 +151,7 @@ function isUserInCooldown(userId) {
     const nextClaimReset = new Date(lastClaim);
     nextClaimReset.setHours(nextClaimReset.getHours() + 3);  // Adiciona 3 horas ao último claim
     if (new Date() < nextClaimReset) {
-        console.log("🚫 Em cooldown de claim, aguardando próximo reset de claim.");
+        //console.log("🚫 Em cooldown de claim, aguardando próximo reset de claim.");
         return true;  // Impede claim se estiver dentro do cooldown de 3h
     }
 
@@ -132,7 +174,7 @@ async function handleKakeraDrop(message) {
     if (!isDrop) return;
 
     const serverId = message.guildId;
-    const serverConfig = serverConfigs.get(serverId);
+    const serverConfig = config.get(serverId);
     if (!serverConfig) return;
 
     console.log(`🎯 Detecção de drop de kakera com botões!`.cyan);
@@ -156,16 +198,15 @@ async function rollWaifus() {
         const nextReset = getNextResetTime();
         const now = new Date();
 
-        // Verifica se o usuário está em cooldown de claim
         if (isUserInCooldown(client.user.id)) {
-            console.log("⏳ Em cooldown de claim, aguardando próximo reset.".cyan);
+           // console.log("⏳ Em cooldown de claim, aguardando próximo reset.".cyan);
             const claimCooldownTime = claimCooldowns.get(client.user.id) + (3 * 60 * 60 * 1000) - now;
             await sleep(claimCooldownTime);  // Aguardar o tempo restante do cooldown de claim
             continue;
         }
 
-        const delay = randomDelay(1 * 60 * 1000, 30 * 60 * 1000); // Delay entre os rolls
-        const waitTime = nextReset - now + delay; // Calcula o tempo até o próximo reset
+        const delay = randomDelay(1 * 60 * 1000, 30 * 60 * 1000);
+        const waitTime = nextReset - now + delay;
         const delayMinutes = (delay / 60000).toFixed(2);
 
         console.log(`⏳ Aguardando até ${nextReset.toLocaleTimeString()} + ${delayMinutes} minutos`.cyan);
@@ -220,7 +261,7 @@ client.on("ready", () => {
 
 client.on("messageCreate", async (message) => {
     if (!sniper_on) return;
-    const serverConfig = config[message.guild?.id];
+    const serverConfig = config;
     if (!serverConfig) return;
     if (message.author.id !== "432610292342587392") return;
     if (message.channel.id !== serverConfig.rollChannel) return;
@@ -230,20 +271,21 @@ client.on("messageCreate", async (message) => {
 
     const embed = message.embeds[0];
     const content = embed.description || "";
-    const kakeraMatch = content.match(/\*\*(\d+)\*\*<:kakera:\d+>/);
+    const kakeraMatch = content.match(/\*\*\s*[+]?(\d+)\s*\*\*<:kakera:\d+>/);
     const kakeraValue = kakeraMatch ? parseInt(kakeraMatch[1]) : null;
     const isAlreadyClaimed = embed.footer?.text?.toLowerCase().includes("pertence a") ?? false;
-    const button = components[0].components[0];
-    const charName = embed.author?.name || "???";
-    console.log(`📥 Detectado: ${charName} (${anime})`.yellow);
-    console.log(`💠 Valor kakera: ${kakeraValue ?? "?"}`);
-
-    if (kakeraValue !== null && kakeraValue < serverConfig.minimum_kakera_value) return console.log(`⚠️ Valor abaixo do mínimo (${kakeraValue} < ${config.minimunKakeraValue}). Ignorando.`.gray);;
-    if (isAlreadyClaimed) return;
-
     const components = message.components;
     if (!components?.length || !components[0].components?.length) return;
+    
+    const button = components[0].components[0];
+    const charName = embed.author?.name || "???";
+    console.log(`📥 Detectado: ${charName}`.yellow);
+    console.log(`💠 Valor kakera: ${kakeraValue ?? "?"}`);
+    
 
+    if (kakeraValue !== null && kakeraValue < serverConfig.minimunKakeraValue) return console.log(`⚠️ Valor abaixo do mínimo (${kakeraValue} < ${serverConfig.minimunKakeraValue}). Ignorando.`.gray);
+
+    if (isAlreadyClaimed) return;
 
     if (!message.mentions.has(client.user) && !catch_other_rolls) return;
     if (isUserInCooldown(client.user.id)) return;
@@ -298,6 +340,12 @@ client.on("messageCreate", async (message) => {
         console.log(`[+] Only wishlist ${only_wishlist ? "ativado" : "desativado"}`.yellow);
         return message.delete().catch(() => {});
     }
+    if (message.content === "!instaclaimtop") {
+        instaClaimTop30 = !instaClaimTop30;
+        console.log(`[+] InstaClaimTop30 ${instaClaimTop30 ? "ativado" : "desativado"}`.yellow);
+        return message.delete().catch(() => {});
+    }
+    
 });
 
 client.login(config.token);
